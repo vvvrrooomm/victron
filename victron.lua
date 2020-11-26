@@ -10,6 +10,23 @@ fields.status   = ProtoField.uint8("victron.status", "Status", base.HEX)
 fields.transaction_id = ProtoField.uint8 ("victron.transaction_id", "TransactionId", base.HEX)
 fields.remaining   = ProtoField.uint8("victron.remaining", "Remainig pkts", base.DEC)
 fields.protocol_type   = ProtoField.uint8("victron.protocol_type", "prot type", base.HEX)
+
+
+local command_categories = {
+	[0x03190308] = "history values",
+	[0x03190309] = "history bools",
+	[0x10190308] = "settings values",
+	[0x10190309] = "settings bools",
+	[0xed190308] = "values values",
+	[0xed190309] = "values bools",
+	[0x0f190308] = "mixed settings",
+	[0xed190008] = "Orion Values",
+	[0xee190008] = "Orion Settings",
+	[0xec190008] = "streaming smartshunt",
+	[0x05038119] = "streaming2",
+	[0x19819395] = "streaming3",
+	[0x02190008] = "Orion state",
+}
 fields.command_category = ProtoField.uint32("victron.cmd_category", "command category", base.HEX, command_categories)
 fields.start_sequence   = ProtoField.uint32("victron.start_sequence", "start_squence", base.HEX)
 fields.unknown_command  = ProtoField.uint8("victron.command", "unknown command", base.HEX)
@@ -61,22 +78,6 @@ local value_commands = {
 	[0xf6] = {fields.float_voltage,100}, --smartsolar setting
 }
 
-
-local command_categories = {
-	[0x03190308] = "history values",
-	[0x03190309] = "history bools",
-	[0x10190308] = "settings values",
-	[0x10190309] = "settings bools",
-	[0xed190308] = "values values",
-	[0xed190309] = "values bools",
-	[0x0f190308] = "mixed settings",
-	[0xed190008] = "Orion Values",
-	[0xee190008] = "Orion Settings",
-	[0xec190008] = "streaming smartshunt",
-	[0x05038119] = "streaming2",
-	[0x19819395] = "streaming3",
-}
-
 local mixedsetting_types={
 [0xff] = "Battery Charge Status", 
 }
@@ -89,15 +90,45 @@ local mixedsetting_commands = {
 }
 
 local orion_types = {
+	[0xdb] = "Orion maybe not? charge mode",
+	[0x8d] = "Orion Output Voltage",
 	[0xbb] = "Orion Input Voltage",
 	[0xe9] = "Orion Set Delayed start voltage delay",
+	[0x09] = "Orion not?? charger state. 0x01 for both",
+	[0xf7] = "Orion Absorption Voltage",
+	[0xf6] = "Orion Float Voltage",
+	[0xfc] = "Orion maybe?? bulk time limit as BCD HH:MM",
+	[0x20] = "Orion maybe?? sec since? counts up ~1/sec", --not yet decoded, different category
 }
 fields.orion   = ProtoField.uint8("victron.orion", "orion command", base.HEX, orion_types)
 fields.orion_in_volt = ProtoField.float("victron.orion_in_volt", orion_types[0xbb], {" V"}, base.DEC or base.UNIT_STRING)
+fields.orion_out_volt = ProtoField.float("victron.orion_out_volt", orion_types[0x8d], {" V"}, base.DEC or base.UNIT_STRING)
 fields.start_delay = ProtoField.float("victron.start_delay", orion_types[0xe9], {" sec"}, base.DEC or base.UNIT_STRING)
+fields.orion_bool9 = ProtoField.bool("victron.orion_bool9", orion_types[0x09])
+fields.orion_absorption = ProtoField.float("victron.orion_absorption", orion_types[0xf7], {" V"}, base.DEC or base.UNIT_STRING)
+fields.orion_float = ProtoField.float("victron.orion_float", orion_types[0xf6], {" V"}, base.DEC or base.UNIT_STRING)
+fields.orion_bulk_limit = ProtoField.float("victron.orion_bulk_limit", orion_types[0xfc], {"HH:MM"}, base.DEC or base.UNIT_STRING)
+fields.orion_sec_since   = ProtoField.uint32("victron.orion_sec_since", orion_types[0x20], base.HEX)
+local chargemode_strings = {
+	[0x0b72] = "disabled. input volt., engine off",
+	[0x0b7c] = "disabled. engine off",
+	[0x0b68] = "disabled.",
+	[0x0b5e] = "bulk loading",
+}
+fields.orion_charge_mode   = ProtoField.uint32("victron.orion_charge_mode", orion_types[0x07], base.HEX,chargemode_strings)
+
 local orion_commands = {
+	[0x8d] = {fields.orion_out_volt,100},
 	[0xbb] = {fields.orion_in_volt,100},
 	[0xe9] = {fields.start_delay,10},
+	[0xf7] = {fields.orion_absorption,100},
+	[0xf7] = {fields.orion_float,100},
+	[0xfc] = {fields.orion_bulk_limit,1},
+	[0x20] = {fields.orion_sec_since,1},
+	[0xdb] = {fields.orion_charge_mode,1},
+}
+local orion_bool = {
+	[0x09] = {fields.orion_bool9,1},
 }
 
 local orionsettings_types = {
@@ -130,6 +161,16 @@ local hist_types = {
 	[0x09] = "hist: synchronizations",
 	[0x10] = "hist: Discharged Energy",
 	[0x11] = "hist: Charged Energy",
+	[0x28] = "Alarms: Low SOC set",            -- alarms are disabled by setting to 0
+	[0x29] = "Alarms: Low SOC clear",
+	[0x20] = "Alarms: Low Voltage set",
+	[0x21] = "Alarms: Low Voltage clear",
+	[0x22] = "Alarms: High Voltage set",
+	[0x23] = "Alarms: High Voltage clear",
+	[0x24] = "Alarms: Low Starter Voltage set",
+	[0x25] = "Alarms: Low Starter Voltage clear",
+	[0x26] = "Alarms: High Starter Voltage set",
+	[0x27] = "Alarms: High Starter Voltage clear",
 }
 fields.history = ProtoField.uint8("victron.history", "history", base.HEX, hist_types)
 fields.hist_synch = ProtoField.uint16("victron.hist_synch", hist_types[0x09], base.DEC)
@@ -144,6 +185,16 @@ fields.hist_max_bat = ProtoField.float("victron.hist_max_bat", hist_types[0x07],
 fields.hist_time_full = ProtoField.int32("victron.hist_time_full", hist_types[0x08])
 fields.hist_discharged_energy = ProtoField.float("victron.hist_discharged_energy",  hist_types[0x10], {" kWh"}, base.UNIT_STRING)
 fields.hist_charged_energy = ProtoField.float("victron.hist_charged_energy",  hist_types[0x11], {" kWh"}, base.UNIT_STRING)
+fields.alarm_soc_set = ProtoField.uint16("victron.alarm_soc_set", hist_types[0x28], base.UNIT_STRING, {"%"})
+fields.alarm_soc_clear = ProtoField.uint16("victron.alarm_soc_clear", hist_types[0x29], base.UNIT_STRING, {"%"})
+fields.alarm_voltage_set = ProtoField.float("victron.alarm_voltage_set", hist_types[0x20], {"V"}, base.UNIT_STRING)
+fields.alarm_voltage_clear = ProtoField.float("victron.alarm_voltage_clear", hist_types[0x21], {"V"}, base.UNIT_STRING)
+fields.alarm_high_voltage_set = ProtoField.float("victron.alarm_high_voltage_set", hist_types[0x22], {"V"}, base.UNIT_STRING)
+fields.alarm_high_voltage_clear = ProtoField.float("victron.alarm_high_voltage_clear", hist_types[0x23], {"V"}, base.UNIT_STRING)
+fields.alarm_low_starter_set = ProtoField.float("victron.alarm_low_starter_set", hist_types[0x24], {"V"}, base.UNIT_STRING)
+fields.alarm_low_starter_clear = ProtoField.float("victron.alarm_low_starter_clear", hist_types[0x25], {"V"}, base.UNIT_STRING)
+fields.alarm_high_starter_set = ProtoField.float("victron.alarm_high_starter_set", hist_types[0x26], {"V"}, base.UNIT_STRING)
+fields.alarm_high_starter_clear = ProtoField.float("victron.alarm_high_starter_clear", hist_types[0x27], {"V"}, base.UNIT_STRING)
 local hist_commands = {
 	[0x00] = {fields.hist_deepest_discharge,10},
 	[0x01] = {fields.hist_last_discharge,10},
@@ -157,6 +208,16 @@ local hist_commands = {
 	[0x09] = {fields.hist_synch,1},
 	[0x10] = {fields.hist_discharged_energy,100},
 	[0x11] = {fields.hist_charged_energy,100},
+	[0x28] = {fields.alarm_soc_set, 10},
+	[0x29] = {fields.alarm_soc_clear, 10},
+	[0x20] = {fields.alarm_voltage_set, 100},
+	[0x21] = {fields.alarm_voltage_clear, 100},
+	[0x22] = {fields.alarm_high_voltage_set, 100},
+	[0x23] = {fields.alarm_high_voltage_clear, 100},
+	[0x24] = {fields.alarm_low_starter_set, 100},
+	[0x25] = {fields.alarm_low_starter_clear, 100},
+	[0x26] = {fields.alarm_high_starter_set, 100},
+	[0x27] = {fields.alarm_high_starter_clear, 100},
  }
 
 
@@ -214,9 +275,9 @@ local settings_commands = {
 }
 
 fields.unknown8   = ProtoField.uint8("victron.unknown8", "Unknown8 value", base.HEX_HEX)
-fields.unknown16   = ProtoField.uint16("victron.unknown16", "Unknown16 value", base.DEC_HEX)
-fields.unknown24   = ProtoField.uint24("victron.unknown24", "Unknown24 value", base.DEC_HEX)
-fields.unknown32   = ProtoField.int32("victron.unknown32", "Unknown32 value", base.DEC)
+fields.unknown16   = ProtoField.uint16("victron.unknown16", "Unknown16 value", base.HEX_DEC)
+fields.unknown24   = ProtoField.uint24("victron.unknown24", "Unknown24 value", base.HEX_DEC)
+fields.unknown32   = ProtoField.uint32("victron.unknown32", "Unknown32 value", base.HEX_DEC)
 fields.unknown_bool_type  = ProtoField.uint8("victron.unknown_bool_type", "unknwon bool type", base.HEX)
 fields.unknown_bool_value  = ProtoField.bool("victron.unknown_bool_value", "unknown bool value")
 
@@ -277,11 +338,18 @@ function add_unknown_field(buffer,pinfo,subtree)
 end
 
 local unknown_command = {fields.unknown32, 1}
+local unknown_bool = {fields.set_boolvalue,1}
 
-
-function settings_bool(buffer, pinfo, subtree)
+function settings_bool(buffer, pinfo, subtree, bool_types)
+	command = buffer(0,1):le_uint() 
+	local fun
+	if bool_types[command] == nil then
+		fun = unknown_bool
+	else
+	 fun = bool_types[command]
+	end
 	subtree:add_le(fields.set_booltype, buffer(0,1))
-	subtree:add_le(fields.set_boolvalue, buffer(1,1))
+	subtree:add_le(fun[1], buffer(1,1))
 	return 2
 end
 
@@ -300,6 +368,7 @@ function command_category(buffer, pinfo, subtree, data_size, command_types)
 end
 
 local category_funs = {
+[0x01190009] = {orion_commands,fields.orion},
 [0x10190308] = {settings_commands,fields.settings_value},
 [0xed190308] = {value_commands,fields.value},
 [0x03190308] = {hist_commands, fields.history},
@@ -308,6 +377,12 @@ local category_funs = {
 [0xee190008] = {orionsettings_commands, fields.orion_settings},
 [0x05038119] = {value_commands,fields.value},
 [0x19810305] = {value_commands,fields.value},
+[0x02190008] = {orion_commands, fields.orion},
+}
+
+local bool_Categories = {
+	[0x10190309] = {orion_bool,fields.orion},
+	[0x01190009] = {orion_bool,fields.orion},
 }
 
 function single_value(buffer,pinfo,subtree)	
@@ -319,7 +394,7 @@ function single_value(buffer,pinfo,subtree)
 	subtree:add_le(fields.data_type, buffer(0,1), data_type)
 
 	local category = buffer(0,4):le_uint()
-	subtree:add_le(fields.command_category, buffer(3,1), category, data_size, value_commands)
+	subtree:add_le(fields.command_category, buffer(0,4))
 
 	command_class_nibble = bit.rshift( bit.band(buffer(5,1):uint() , 0xf0) ,4)
 	subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
@@ -328,7 +403,7 @@ function single_value(buffer,pinfo,subtree)
 	local consumed = 6
 
 	local header = buffer(0,4):le_uint()
-	print("header:"..header)
+	print("victron: header:"..header)
 	category_fun = category_funs[header]
 
 	if category_fun  then
@@ -336,9 +411,10 @@ function single_value(buffer,pinfo,subtree)
 		return consumed + command_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])
 	end
 
-	if buffer(0,4):le_uint() == 0x10190309 then
-		subtree:add_le(fields.settings_value, buffer(4,1))
-		return consumed + settings_bool(buffer(4), pinfo, subtree)
+	bool_fun = bool_Categories[header]
+	if bool_fun then
+		subtree:add_le(bool_fun[2], buffer(4,1))
+		return consumed + settings_bool(buffer(4), pinfo, subtree, bool_fun[1])
 	end		
 
 	if  data_type== 0x09 then
@@ -354,10 +430,10 @@ function bulkvalues(buffer,pinfo,tree)
 	local packet_type = buffer(1,2):le_uint()
 	local data_start =  buffer(3)
 	tvbs = {}
-	print("bulk")
-	print("data_Types:"..buffer(0,4))
+	print("victron: bulk")
+	print("victron: data_Types:"..buffer(0,4))
 	if command_categories[buffer(0,4):le_uint()] == nil then
-		print("header unknwon, need more bytes:")
+		print("victron: header unknwon, need more bytes:")
 		pinfo.desegment_offset = 5
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0
@@ -372,15 +448,15 @@ function bulkvalues(buffer,pinfo,tree)
 		local subtree = tree:add(victron_protocol, "Bulk Value", buffer)
 		local result = single_value(buffer(bytes_consumed), pinfo, subtree)
 		if result == 0 then
-			print("need more bytes")
+			print("victron: need more bytes")
 			pinfo.desegment_offset = 5
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-			print("set pinfo desegment_offset "..pinfo.desegment_offset or "nil")
-			print("set pinfo.desegment_len "..pinfo.desegment_len)
+			print("victron: set pinfo desegment_offset "..pinfo.desegment_offset or "nil")
+			print("victron: set pinfo.desegment_len "..pinfo.desegment_len)
 	
 			return pktlen
 		end
-		print("consumed:"..result)
+		print("victron: consumed:"..result)
 		bytes_consumed = bytes_consumed + result
 	end
 
@@ -424,24 +500,24 @@ function victron_protocol.dissector(buffer, pinfo, tree)
 	local subtree = tree:add(victron_protocol, buffer)
 	subtree:add_le(fields.packet_type, packet_type):set_generated()
 	
-	print("start pinfo desegment_offset "..pinfo.desegment_offset or "nil")
-	print("start pinfo.desegment_len "..pinfo.desegment_len)
+	print("victron: start pinfo desegment_offset "..pinfo.desegment_offset or "nil")
+	print("victron: start pinfo.desegment_len "..pinfo.desegment_len)
 	
 
 	if opcode == 0x52 then
 		sending(buffer, pinfo, subtree)
 		return
 	end
-	print("buffer length:"..length)
+	print("victron: buffer length:"..length)
 	local bytes_consumed = 0
 	if packet_type == 0x0027 then
 		bytes_consumed = bulkvalues(buffer,pinfo,subtree)
 	else	
 		bytes_consumed = single_value(buffer,pinfo,subtree)
 	end
-	print("end bytes cons"..bytes_consumed)
-	print("end pinfo desegment_offset "..pinfo.desegment_offset)
-	print("end pinfo.desegment_len "..pinfo.desegment_len)
+	print("victron: end bytes cons"..bytes_consumed)
+	print("victron: end pinfo desegment_offset "..pinfo.desegment_offset)
+	print("victron: end pinfo.desegment_len "..pinfo.desegment_len)
 	return bytes_consumed 
 end
 DissectorTable.get("btl2cap.cid"):add(0x0004, victron_protocol)
