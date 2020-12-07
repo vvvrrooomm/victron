@@ -403,7 +403,7 @@ function single_value(buffer,pinfo,subtree)
 	local consumed = 6
 
 	local header = buffer(0,4):le_uint()
-	print("victron: header:"..header)
+	
 	category_fun = category_funs[header]
 
 	if category_fun  then
@@ -431,7 +431,6 @@ function bulkvalues(buffer,pinfo,tree)
 	local data_start =  buffer(3)
 	tvbs = {}
 	print("victron: bulk")
-	print("victron: data_Types:"..buffer(0,4))
 	if command_categories[buffer(0,4):le_uint()] == nil then
 		print("victron: header unknwon, need more bytes:")
 		pinfo.desegment_offset = 5
@@ -448,15 +447,12 @@ function bulkvalues(buffer,pinfo,tree)
 		local subtree = tree:add(victron_protocol, "Bulk Value", buffer)
 		local result = single_value(buffer(bytes_consumed), pinfo, subtree)
 		if result == 0 then
-			print("victron: need more bytes")
+			print("victron: bulk need more bytes")
 			pinfo.desegment_offset = 5
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-			print("victron: set pinfo desegment_offset "..pinfo.desegment_offset or "nil")
-			print("victron: set pinfo.desegment_len "..pinfo.desegment_len)
-	
+		
 			return pktlen
 		end
-		print("victron: consumed:"..result)
 		bytes_consumed = bytes_consumed + result
 	end
 
@@ -474,50 +470,47 @@ function sending(buffer, pinfo, subtree)
 end
 
 function victron_protocol.dissector(buffer, pinfo, tree)
-	gatt:call(buffer, pinfo, tree)
-	local opcode = btatt_opcode_f().value
+	--leftover when this dissector was attached to btl2cap.cid
+	--gatt:call(buffer, pinfo, tree)
+	--local opcode = btatt_opcode_f().value
+	--local btatt_value = btatt_value_f()
 	local packet_type = btatt_handle_f().value
-	local btatt_value = btatt_value_f()
-
-	--works but creates new data window
-	buffer = btatt_value.value:tvb()
-
-	local length = buffer:len()
-	if length <= 3 then
-		return
-	end
-
+	
 	pinfo.cols.protocol = victron_protocol.name
 
 	-- first 3 byte are handled by btatt dissector
 	-- subtree:add_le(fields.command_dir, buffer(0,1)):append_text("send CMD")
 	-- subtree:add_le(fields.characteristic, buffer(1,2))
-	--local packet_type = buffer(1,2):le_uint()
-	
-	--subtree:add_le(fields.data, buffer(0))--hilft nix mehr, bei BT_ATT gucken
-	--subtree:add_le(fields.reserved, buffer(3,4))
 	
 	local subtree = tree:add(victron_protocol, buffer)
 	subtree:add_le(fields.packet_type, packet_type):set_generated()
 	
-	print("victron: start pinfo desegment_offset "..pinfo.desegment_offset or "nil")
-	print("victron: start pinfo.desegment_len "..pinfo.desegment_len)
-	
-
 	if opcode == 0x52 then
 		sending(buffer, pinfo, subtree)
 		return
 	end
-	print("victron: buffer length:"..length)
 	local bytes_consumed = 0
 	if packet_type == 0x0027 then
 		bytes_consumed = bulkvalues(buffer,pinfo,subtree)
 	else	
 		bytes_consumed = single_value(buffer,pinfo,subtree)
 	end
-	print("victron: end bytes cons"..bytes_consumed)
-	print("victron: end pinfo desegment_offset "..pinfo.desegment_offset)
-	print("victron: end pinfo.desegment_len "..pinfo.desegment_len)
 	return bytes_consumed 
 end
-DissectorTable.get("btl2cap.cid"):add(0x0004, victron_protocol)
+
+
+-- alternate property to attach to
+-- DissectorTable.get("btl2cap.cid"):add(0x0004, victron_protocol)
+
+-- DissectorTable.get("btatt.handle"):add(0x0004, victron_protocol)
+-- DissectorTable.get("btatt.handle"):add(0x0020, victron_protocol)
+-- DissectorTable.get("btatt.handle"):add(0x0023, victron_protocol)
+-- DissectorTable.get("btatt.handle"):add(0x0026, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x0025, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x001b, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x000c, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x001e, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x0021, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x0027, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x0024, victron_protocol)
+DissectorTable.get("btatt.handle"):add(0x0021, victron_protocol)

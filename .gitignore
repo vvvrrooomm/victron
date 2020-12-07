@@ -2,3 +2,5 @@ venv
 VictronConnect-x86_64-v5.35
 VictronConnect-x86_64-v5.35/.*
 __pycache__/
+data/
+.vscode/
