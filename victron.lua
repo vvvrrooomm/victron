@@ -232,6 +232,7 @@ fields.data   = ProtoField.bytes("victron.data", "data", base.SPACE)
 fields.arguments   = ProtoField.bytes("victron.arguments", "arguments", base.SPACE)
 fields.crc   = ProtoField.uint8("victron.crc", "crc", base.HEX)
 fields.reserved   = ProtoField.uint8("victron.reserved", "Reserved", base.HEX)
+fields.padding   = ProtoField.bytes("victron.padding", "Padding")
 
 
 
@@ -385,9 +386,18 @@ local bool_Categories = {
 	[0x01190009] = {orion_bool,fields.orion},
 }
 
+local function prepare_subtree(buffer, tree, packet_type)
+	local subtree = tree:add(victron_protocol, buffer)
+	subtree:add_le(fields.packet_type, packet_type):set_generated()
+	return subtree
+end
+
 function single_value(buffer,pinfo,subtree)	
-	if buffer:len() <6 then
-		return 0
+	if buffer:len() < 4 then
+		print("victron: single value need more bytes")
+		pinfo.desegment_offset = 0
+		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+		return 0 -- not enough data to dissect
 	end
 	subtree:add_le(fields.start_sequence, buffer(0,4))
 	local data_type = buffer(0,1):le_uint()
@@ -424,40 +434,46 @@ function single_value(buffer,pinfo,subtree)
 	end
 end
 
+local function is_packet_end(buffer)
+  -- 4 byte is the minimum header, only test that much for 0xff
+	for i=0,math.min(4,buffer:len()-1) do
+		if buffer(i,1):le_uint() ~= 0xff then
+			return false
+		end	
+	end
+	return true
+end
 
+local function add_padding(buffer,pinfo,tree)	
+	tree:add_le(fields.padding, buffer(0,buffer:len()))
+end
 
-function bulkvalues(buffer,pinfo,tree)	
+local function bulkvalues(buffer,pinfo,tree)	
 	print("victron: bulk")
-	if buffer:len() < 4 then
-		print("victron: bulk header too short")
-		pinfo.desegment_offset = 0
-		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-		return 0
-	end
-
-	local packet_type = buffer(1,2):le_uint()
-	local data_start =  buffer(3)
-	tvbs = {}
-
-
-	if command_categories[buffer(0,4):le_uint()] == nil then
-		print("victron: header unknwon, need more bytes:") --eigentlich unfug. category ist unbekannt
-		pinfo.desegment_offset = 0
-		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-		return 0
-	end
 
 	-- get the length of the packet buffer (Tvb).
 	local pktlen = buffer:len()
 	local bytes_consumed = 0
 	
-
 	while bytes_consumed < pktlen do
+		if pktlen - bytes_consumed < 4 then -- same minimum size as in single_Value, keeps from adding empty 'bulk value' entries
+			print("victron: bulk need more bytes")
+			pinfo.desegment_offset = bytes_consumed 
+			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+		
+			return bytes_consumed
+		end
+		print("testpadding")
+		if is_packet_end(buffer(bytes_consumed)) then
+			print("found padding")
+			add_padding(buffer(bytes_consumed), pinfo, tree)
+			return pktlen
+		end
 		local subtree = tree:add(victron_protocol, "Bulk Value", buffer)
 		local result = single_value(buffer(bytes_consumed), pinfo, subtree)
 		if result == 0 then
 			print("victron: bulk need more bytes")
-			pinfo.desegment_offset = bytes_consumed -- +3 new wireshark code subtracts ahndle itself
+			pinfo.desegment_offset = bytes_consumed
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		
 			return bytes_consumed
@@ -474,7 +490,8 @@ function bulkvalues(buffer,pinfo,tree)
 end
 
 
-function sending(buffer, pinfo, subtree)
+function sending(buffer, pinfo, tree)
+	local subtree = prepare_subtree(buffer, tree)
 	local send_commands = {
 		[0xf941] = "Ping",
 		[0xf980] = "0xf980",
@@ -496,14 +513,30 @@ function victron_protocol.dissector(buffer, pinfo, tree)
 	-- subtree:add_le(fields.command_dir, buffer(0,1)):append_text("send CMD")
 	-- subtree:add_le(fields.characteristic, buffer(1,2))
 	
-	local subtree = tree:add(victron_protocol, buffer)
-	subtree:add_le(fields.packet_type, packet_type):set_generated()
+
 	
 	if opcode == 0x52 then
-		sending(buffer, pinfo, subtree)
+		sending(buffer, pinfo, tree)
 		return
 	end
 	local bytes_consumed = 0
+
+	if buffer:len() < 4 then
+		print("victron generic: header too short")
+		pinfo.desegment_offset = 0
+		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+		return 0
+	end
+
+	if command_categories[buffer(0,4):le_uint()] == nil then
+		print("victron: category unknown, need previous bytes")
+		pinfo.desegment_offset = 0
+		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+		return 0
+	end
+
+	local subtree = prepare_subtree(buffer, tree, packet_type)
+
 	if packet_type == 0x0027 then
 		bytes_consumed = bulkvalues(buffer,pinfo,subtree)
 	else	
