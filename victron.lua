@@ -427,13 +427,22 @@ end
 
 
 function bulkvalues(buffer,pinfo,tree)	
+	print("victron: bulk")
+	if buffer:len() < 4 then
+		print("victron: bulk header too short")
+		pinfo.desegment_offset = 0
+		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+		return 0
+	end
+
 	local packet_type = buffer(1,2):le_uint()
 	local data_start =  buffer(3)
 	tvbs = {}
-	print("victron: bulk")
+
+
 	if command_categories[buffer(0,4):le_uint()] == nil then
-		print("victron: header unknwon, need more bytes:")
-		pinfo.desegment_offset = 5
+		print("victron: header unknwon, need more bytes:") --eigentlich unfug. category ist unbekannt
+		pinfo.desegment_offset = 0
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0
 	end
@@ -448,14 +457,19 @@ function bulkvalues(buffer,pinfo,tree)
 		local result = single_value(buffer(bytes_consumed), pinfo, subtree)
 		if result == 0 then
 			print("victron: bulk need more bytes")
-			pinfo.desegment_offset = 5
+			pinfo.desegment_offset = bytes_consumed -- +3 new wireshark code subtracts ahndle itself
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		
-			return pktlen
+			return bytes_consumed
 		end
 		bytes_consumed = bytes_consumed + result
 	end
 
+	if buffer(pktlen-2,2):le_uint() == 0xffff then
+		print("final paekt found")
+		pinfo.desegment_offset = pktlen -- +3 new wireshark code subtracts ahndle itself
+		pinfo.desegment_len = 0
+	end
 	return bytes_consumed
 end
 
