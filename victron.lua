@@ -6,6 +6,15 @@ local btatt_opcode_f = Field.new("btatt.opcode")
 
 fields = victron_protocol.fields 
 
+fields.unknown8   = ProtoField.uint8("victron.unknown8", "Unknown8 value", base.HEX_HEX)
+fields.unknown16   = ProtoField.uint16("victron.unknown16", "Unknown16 value", base.HEX_DEC)
+fields.unknown24   = ProtoField.uint24("victron.unknown24", "Unknown24 value", base.HEX_DEC)
+fields.unknown32   = ProtoField.uint32("victron.unknown32", "Unknown32 value", base.HEX_DEC)
+fields.unknown64   = ProtoField.uint64("victron.unknown64", "Unknown64 value", base.HEX_DEC)
+fields.unknown_bytes   = ProtoField.bytes("victron.unknown_bytes", "Unknown bytes", base.SPACE)
+fields.unknown_bool_type  = ProtoField.uint8("victron.unknown_bool_type", "unknwon bool type", base.HEX)
+fields.unknown_bool_value  = ProtoField.bool("victron.unknown_bool_value", "unknown bool value")
+
 fields.status   = ProtoField.uint8("victron.status", "Status", base.HEX)
 fields.transaction_id = ProtoField.uint8 ("victron.transaction_id", "TransactionId", base.HEX)
 fields.remaining   = ProtoField.uint8("victron.remaining", "Remainig pkts", base.DEC)
@@ -88,6 +97,22 @@ local mixedsetting_commands = {
 	[0xfd] = {fields.bool_bat_start_sync,1},
 	[0xff] = {fields.state_of_charge,100},
 }
+
+local streamingcommands_types= {
+
+}
+fields.streaming_commands =  ProtoField.uint8("victron.streamingcommands", "streaming commands", base.HEX, streamingcommands_types)
+local streaming_commands = {
+		[0x20] = {fields.unknown_bytes,1},
+		[0x30] = {fields.unknown8,1},
+		[0x31] = {fields.unknown64,1},
+}
+
+fields.smartshunt_bool = ProtoField.bool("victron.smartshunt_bool", "unknwon bool")
+local smartshunt_bool = {
+	[0x41] = {fields.smartshunt_bool,1},
+}
+
 
 local orion_types = {
 	[0xdb] = "Orion maybe not? charge mode",
@@ -221,7 +246,7 @@ local hist_commands = {
  }
 
 
-command_class_type = { [0x0] = "status reply?", [0x4] ="data reply?", [0x8] = "bulk values??"}
+command_class_type = { [0x0] = "status reply?", [0x4] ="data reply?", [0x05]="data array?", [0x8] = "bulk values??"}
 fields.command_class   = ProtoField.uint8("victron.command_class", "command class", base.HEX, command_class_type)
 
 data_size_type = { [0x08] = "8byte", [0x04] = "4ybte" , [0x02]="2byte", [0x01] = "1byte"}
@@ -275,12 +300,6 @@ local settings_commands = {
 	[0x08] = {fields.set_dis_floor,10},	
 }
 
-fields.unknown8   = ProtoField.uint8("victron.unknown8", "Unknown8 value", base.HEX_HEX)
-fields.unknown16   = ProtoField.uint16("victron.unknown16", "Unknown16 value", base.HEX_DEC)
-fields.unknown24   = ProtoField.uint24("victron.unknown24", "Unknown24 value", base.HEX_DEC)
-fields.unknown32   = ProtoField.uint32("victron.unknown32", "Unknown32 value", base.HEX_DEC)
-fields.unknown_bool_type  = ProtoField.uint8("victron.unknown_bool_type", "unknwon bool type", base.HEX)
-fields.unknown_bool_value  = ProtoField.bool("victron.unknown_bool_value", "unknown bool value")
 
 local statuses = {
 [0x00] = "New Command",
@@ -335,6 +354,7 @@ function add_unknown_field(buffer,pinfo,subtree)
 	end
 		subtree:add_le(fields.unknown_command, buffer(0,1))
 		subtree:add_le(unknown_field, buffer(2,data_size_nibble))
+		print("unknwon field added, size:"..data_size_nibble)
 		return data_size_nibble
 end
 
@@ -368,12 +388,27 @@ function command_category(buffer, pinfo, subtree, data_size, command_types)
 	return data_size
 end
 
+
+function array_category(buffer, pinfo, subtree, data_size, command_types)
+
+	command = buffer(0,1):le_uint() 
+	local fun
+	if command_types[command] == nil then
+		fun = unknown_command
+	else
+	 fun = command_types[command]
+	end
+	subtree:add_le(fun[1], buffer(2,data_size))
+	return data_size
+end
+
 local category_funs = {
 [0x01190009] = {orion_commands,fields.orion},
 [0x10190308] = {settings_commands,fields.settings_value},
 [0xed190308] = {value_commands,fields.value},
 [0x03190308] = {hist_commands, fields.history},
 [0x0f190308] = {mixedsetting_commands, fields.mixedsettings},
+[0xec190008] = {streaming_commands, fields.streaming_commands},
 [0xed190008] = {orion_commands, fields.orion},
 [0xee190008] = {orionsettings_commands, fields.orion_settings},
 [0x05038119] = {value_commands,fields.value},
@@ -392,13 +427,26 @@ local function prepare_subtree(buffer, tree, packet_type)
 	return subtree
 end
 
+local MINIMUM_PACKET_SIZE = 5
+
 function single_value(buffer,pinfo,subtree)	
-	if buffer:len() < 4 then
-		print("victron: single value need more bytes")
+	if buffer:len() < MINIMUM_PACKET_SIZE then
+		print("victron: single value need more bytes (header)")
 		pinfo.desegment_offset = 0
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0 -- not enough data to dissect
 	end
+
+	local consumed = 6 -- headers and minimal packet
+	command_class_nibble = bit.rshift( bit.band(buffer(5,1):uint() , 0xf0) ,4)
+	data_size_nibble = bit.band(buffer(5,1):uint() , 0x0f)
+	if data_size_nibble+6 > buffer:len() then
+		print("victron: single value need more bytes (data)")
+		pinfo.desegment_offset = 0
+		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+		return 0 -- not enough data to dissect
+	end
+
 	subtree:add_le(fields.start_sequence, buffer(0,4))
 	local data_type = buffer(0,1):le_uint()
 	subtree:add_le(fields.data_type, buffer(0,1), data_type)
@@ -406,11 +454,9 @@ function single_value(buffer,pinfo,subtree)
 	local category = buffer(0,4):le_uint()
 	subtree:add_le(fields.command_category, buffer(0,4))
 
-	command_class_nibble = bit.rshift( bit.band(buffer(5,1):uint() , 0xf0) ,4)
 	subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
-	data_size_nibble = bit.band(buffer(5,1):uint() , 0x0f)
 	subtree:add_le(fields.data_size , buffer(5,1), data_size_nibble)
-	local consumed = 6
+
 
 	local header = buffer(0,4):le_uint()
 	
@@ -418,7 +464,11 @@ function single_value(buffer,pinfo,subtree)
 
 	if category_fun  then
 		subtree:add_le(category_fun[2], buffer(4,1))
-		return consumed + command_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])
+		if command_class_nibble == 0x05 then
+			return consumed + array_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
+		else
+			return consumed + command_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])
+		end
 	end
 
 	bool_fun = bool_Categories[header]
@@ -428,14 +478,16 @@ function single_value(buffer,pinfo,subtree)
 	end		
 
 	if  data_type== 0x09 then
-		return add_unknown_bool(buffer(4),pinfo,subtree)
+		return consumed + add_unknown_bool(buffer(4),pinfo,subtree)
 	else
-		return add_unknown_field(buffer(4),pinfo,subtree)
+		return consumed + add_unknown_field(buffer(4),pinfo,subtree)
 	end
 end
 
+-- only adds padding at the packet end 
 local function is_packet_end(buffer)
-  -- 4 byte is the minimum header, only test that much for 0xff
+	-- 4 byte is the minimum header, only test that much for 0xff
+	-- start at begginning of tvb towards the end
 	for i=0,math.min(4,buffer:len()-1) do
 		if buffer(i,1):le_uint() ~= 0xff then
 			return false
@@ -449,41 +501,49 @@ local function add_padding(buffer,pinfo,tree)
 end
 
 local function bulkvalues(buffer,pinfo,tree)	
-	print("victron: bulk")
+	print("victron: bulk:"..buffer(0,4):bytes():tohex())
 
 	-- get the length of the packet buffer (Tvb).
 	local pktlen = buffer:len()
 	local bytes_consumed = 0
-	
+
 	while bytes_consumed < pktlen do
-		if pktlen - bytes_consumed < 4 then -- same minimum size as in single_Value, keeps from adding empty 'bulk value' entries
-			print("victron: bulk need more bytes")
+		-- test for minimum header length
+		if pktlen - bytes_consumed < MINIMUM_PACKET_SIZE then -- same minimum size as in single_Value, keeps from adding empty 'bulk value' entries
+			print("victron: bulk before need more bytes")
 			pinfo.desegment_offset = bytes_consumed 
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-		
 			return bytes_consumed
 		end
-		print("testpadding")
-		if is_packet_end(buffer(bytes_consumed)) then
-			print("found padding")
-			add_padding(buffer(bytes_consumed), pinfo, tree)
-			return pktlen
+		-- test for known header. can be unknown or missing bytes
+		if command_categories[buffer(0,4):le_uint()] == nil then -- maybe not neccessary, delete after debug
+			print("victron: category unknown, need previous bytes:"..buffer(0,4):bytes():tohex() )
+			pinfo.desegment_offset = 0
+			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+			return 0
 		end
+		-- actually dissect
 		local subtree = tree:add(victron_protocol, "Bulk Value", buffer)
 		local result = single_value(buffer(bytes_consumed), pinfo, subtree)
 		if result == 0 then
-			print("victron: bulk need more bytes")
+			print("victron: bulk need more bytes(consumed:"..bytes_consumed..")next: "..buffer(bytes_consumed,4):bytes():tohex())
 			pinfo.desegment_offset = bytes_consumed
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-		
 			return bytes_consumed
 		end
+		print("resul:"..result)
 		bytes_consumed = bytes_consumed + result
+		-- post-dissect check if only padding left over
+		if is_packet_end(buffer(bytes_consumed)) then
+			add_padding(buffer(bytes_consumed), pinfo, tree)
+			return pktlen
+		end
 	end
+	print("victron: bulk complete")
 
 	if buffer(pktlen-2,2):le_uint() == 0xffff then
 		print("final paekt found")
-		pinfo.desegment_offset = pktlen -- +3 new wireshark code subtracts ahndle itself
+		pinfo.desegment_offset = pktlen
 		pinfo.desegment_len = 0
 	end
 	return bytes_consumed
@@ -521,7 +581,7 @@ function victron_protocol.dissector(buffer, pinfo, tree)
 	end
 	local bytes_consumed = 0
 
-	if buffer:len() < 4 then
+	if buffer:len() < MINIMUM_PACKET_SIZE then
 		print("victron generic: header too short")
 		pinfo.desegment_offset = 0
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
@@ -529,7 +589,7 @@ function victron_protocol.dissector(buffer, pinfo, tree)
 	end
 
 	if command_categories[buffer(0,4):le_uint()] == nil then
-		print("victron: category unknown, need previous bytes")
+		print("victron: category unknown, need previous bytes:"..buffer(0,4):bytes():tohex() )
 		pinfo.desegment_offset = 0
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0
