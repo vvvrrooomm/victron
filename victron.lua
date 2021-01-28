@@ -15,11 +15,12 @@ fields.unknown_bytes   = ProtoField.bytes("victron.unknown_bytes", "Unknown byte
 fields.unknown_bool_type  = ProtoField.uint8("victron.unknown_bool_type", "unknwon bool type", base.HEX)
 fields.unknown_bool_value  = ProtoField.bool("victron.unknown_bool_value", "unknown bool value")
 
+
 fields.status   = ProtoField.uint8("victron.status", "Status", base.HEX)
 fields.transaction_id = ProtoField.uint8 ("victron.transaction_id", "TransactionId", base.HEX)
 fields.remaining   = ProtoField.uint8("victron.remaining", "Remainig pkts", base.DEC)
 fields.protocol_type   = ProtoField.uint8("victron.protocol_type", "prot type", base.HEX)
-
+fields.leftover   = ProtoField.bytes("victron.leftover", "leftover bytes",base.SPACE, "used in the following packet")
 
 local command_categories = {
 	[0x03190308] = "history values",
@@ -510,6 +511,7 @@ local function bulkvalues(buffer,pinfo,tree)
 	while bytes_consumed < pktlen do
 		-- test for minimum header length
 		if pktlen - bytes_consumed < MINIMUM_PACKET_SIZE then -- same minimum size as in single_Value, keeps from adding empty 'bulk value' entries
+			tree:add(fields.leftover,buffer(bytes_consumed))
 			print("victron: bulk before need more bytes")
 			pinfo.desegment_offset = bytes_consumed 
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
@@ -526,6 +528,9 @@ local function bulkvalues(buffer,pinfo,tree)
 		local subtree = tree:add(victron_protocol, "Bulk Value", buffer)
 		local result = single_value(buffer(bytes_consumed), pinfo, subtree)
 		if result == 0 then
+			subtree:append_text(" [not enough bytes to decode]")
+			subtree:set_hidden(true)
+			tree:add(fields.leftover,buffer(bytes_consumed))
 			print("victron: bulk need more bytes(consumed:"..bytes_consumed..")next: "..buffer(bytes_consumed,4):bytes():tohex())
 			pinfo.desegment_offset = bytes_consumed
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
