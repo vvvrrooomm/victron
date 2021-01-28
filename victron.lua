@@ -573,7 +573,7 @@ function victron_protocol.dissector(buffer, pinfo, tree)
 	local packet_type = btatt_handle_f().value
 	
 	pinfo.cols.protocol = victron_protocol.name
-
+	pinfo.cols.info = ""
 	-- first 3 byte are handled by btatt dissector
 	-- subtree:add_le(fields.command_dir, buffer(0,1)):append_text("send CMD")
 	-- subtree:add_le(fields.characteristic, buffer(1,2))
