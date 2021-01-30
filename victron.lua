@@ -143,8 +143,10 @@ local chargemode_strings = {
 }
 fields.orion_charge_mode   = ProtoField.uint32("victron.orion_charge_mode", orion_types[0x07], base.HEX,chargemode_strings)
 
+-- format is {field_prototype, divisor, converter function}
+-- converter is a function of TvBRange, the class used as tvb variable
 local orion_commands = {
-	[0x8d] = {fields.orion_out_volt,100},
+	[0x8d] = {fields.orion_out_volt,100, TvbRange.int},
 	[0xbb] = {fields.orion_in_volt,100},
 	[0xe9] = {fields.start_delay,10},
 	[0xf7] = {fields.orion_absorption,100},
@@ -384,7 +386,13 @@ function command_category(buffer, pinfo, subtree, data_size, command_types)
 	else
 	 fun = command_types[command]
 	end
-	local value = buffer(2,data_size):le_int() / fun[2] 
+	local converter = TvbRange.le_int
+	if fun[3] then
+		converter = fun[3]
+	end
+	-- equivalent: buffer(2,data_size):le_int()
+	local value = converter(buffer(2,data_size)) / fun[2] 
+	
 	subtree:add_le(fun[1], buffer(2,data_size), value)
 	return data_size
 end
