@@ -12,7 +12,7 @@ fields.unknown24   = ProtoField.uint24("victron.unknown24", "Unknown24 value", b
 fields.unknown32   = ProtoField.uint32("victron.unknown32", "Unknown32 value", base.HEX_DEC)
 fields.unknown64   = ProtoField.uint64("victron.unknown64", "Unknown64 value", base.HEX_DEC)
 fields.unknown_bytes   = ProtoField.bytes("victron.unknown_bytes", "Unknown bytes", base.SPACE)
-fields.unknown_bool_type  = ProtoField.uint8("victron.unknown_bool_type", "unknwon bool type", base.HEX)
+fields.unknown_bool_type  = ProtoField.uint8("victron.unknown_bool_type", "unknown bool type", base.HEX)
 fields.unknown_bool_value  = ProtoField.bool("victron.unknown_bool_value", "unknown bool value")
 
 
@@ -22,7 +22,9 @@ fields.remaining   = ProtoField.uint8("victron.remaining", "Remainig pkts", base
 fields.protocol_type   = ProtoField.uint8("victron.protocol_type", "prot type", base.HEX)
 fields.leftover   = ProtoField.bytes("victron.leftover", "leftover bytes",base.SPACE, "used in the following packet")
 
+-- linked to category_funs
 local command_categories = {
+	[0x01190308] = "base information",
 	[0x03190308] = "history values",
 	[0x03190309] = "history bools",
 	[0x10190308] = "settings values",
@@ -47,6 +49,24 @@ local data_types = {
 }
 fields.data_type   = ProtoField.uint8("victron.data_type", "data type", base.HEX, data_types)
 
+local base_types = {
+	[0x0a] = "serial number",
+	[0x8d] = "",
+	[0xbb] = "",
+	[0xe9] = "",
+	[0x09] = "",
+	[0xf7] = "",
+	[0xf6] = "",
+	[0xfc] = "",
+	[0x20] = "",
+}
+fields.base_commands   = ProtoField.uint8("victron.base", "base command", base.HEX, base_types)
+fields.base_serial = ProtoField.string("victron.base_serial","base serial")
+
+local base_commands = {
+	[0x0a] = {fields.base_serial,1,TvbRange.string},
+}
+
 
 local value_types = {
 	[0x8c] = "SmartShunt Current",
@@ -54,6 +74,7 @@ local value_types = {
 	[0x8e] = "SmartShunt Power",
 	[0x7d] = "SmartShunt Starter",
 	[0x8f] = "SmartSolar Battery Current",
+	[0xa9] = "HomeSmartSolar Battery Voltage(??)",
 	[0xbd] = "SmartSolar Solar Current",
 	[0xbc] = "SmartSolar Power",
 	[0xbb] = "SmartSolar Solar Voltage",
@@ -68,6 +89,7 @@ fields.voltage   = ProtoField.float("victron.voltage", value_types[0x8d], {" V"}
 fields.power   = ProtoField.float("victron.power", value_types[0x8e], {" w"}, base.UNIT_STRING)
 fields.starter   = ProtoField.float("victron.starter", value_types[0x7d], {"V"}, base.UNIT_STRING)
 fields.battery_current   = ProtoField.float("victron.battery_current", value_types[0x8f], {"A"}, base.UNIT_STRING)
+fields.battery_voltage   = ProtoField.float("victron.battery_voltage", value_types[0xa9], {" V"},  base.UNIT_STRING) -- observed in HomseSmartSolar
 fields.solar_current   = ProtoField.float("victron.solar_current", value_types[0x8d], {"A"}, base.UNIT_STRING)
 fields.solar_volt   = ProtoField.float("victron.solar_volt", value_types[0x8d], {"V"}, base.UNIT_STRING)
 fields.solar_power   = ProtoField.float("victron.solarpower", value_types[0xbc], {" w"}, base.UNIT_STRING)
@@ -80,6 +102,7 @@ local value_commands = {
 	[0x8e] = {fields.power,1}, --smartshunt
 	[0x7d] = {fields.starter,100},
 	[0x8f] = {fields.battery_current,10},
+	[0xa9] = {fields.battery_voltage,100},
 	[0xbc] = {fields.solar_power,100}, -- smartsolar
 	[0xbd] = {fields.solar_current,10}, -- smartsolar
 	[0xbb] = {fields.solar_volt,100}, -- smartsolar
@@ -109,7 +132,7 @@ local streaming_commands = {
 		[0x31] = {fields.unknown64,1},
 }
 
-fields.smartshunt_bool = ProtoField.bool("victron.smartshunt_bool", "unknwon bool")
+fields.smartshunt_bool = ProtoField.bool("victron.smartshunt_bool", "unknown bool")
 local smartshunt_bool = {
 	[0x41] = {fields.smartshunt_bool,1},
 }
@@ -340,25 +363,25 @@ function add_unknown_bool(buffer,pinfo,subtree)
 	return 2
 end
 
-function add_unknown_field(buffer,pinfo,subtree)
-		-- unknwond filed depending on data size
-	if data_size_nibble == 1 then
+function add_unknown_field(buffer,size, pinfo,subtree)
+		-- unknownd filed depending on data size
+	if size == 1 then
 		unknown_field = fields.unknown8
 	end
 
-	if data_size_nibble == 2 then
+	if size == 2 then
 		unknown_field = fields.unknown16
 	end
-	if data_size_nibble == 3 then
+	if size == 3 then
 		unknown_field = fields.unknown24
 	end
-	if data_size_nibble == 4 then
+	if size == 4 then
 		unknown_field = fields.unknown32
 	end
 		subtree:add_le(fields.unknown_command, buffer(0,1))
-		subtree:add_le(unknown_field, buffer(2,data_size_nibble))
-		print("unknwon field added, size:"..data_size_nibble)
-		return data_size_nibble
+		subtree:add_le(unknown_field, buffer(2,size))
+		print("unknown field added, size:"..size)
+		return size
 end
 
 local unknown_command = {fields.unknown32, 1}
@@ -390,9 +413,14 @@ function command_category(buffer, pinfo, subtree, data_size, command_types)
 	if fun[3] then
 		converter = fun[3]
 	end
-	-- equivalent: buffer(2,data_size):le_int()
-	local value = converter(buffer(2,data_size)) / fun[2] 
-	
+
+	local value
+	if converter == TvbRange.string then
+		value = converter(buffer(2,data_size))
+	else
+		-- equivalent: buffer(2,data_size):le_int()
+		value = converter(buffer(2,data_size)) / fun[2] 
+	end
 	subtree:add_le(fun[1], buffer(2,data_size), value)
 	return data_size
 end
@@ -412,17 +440,18 @@ function array_category(buffer, pinfo, subtree, data_size, command_types)
 end
 
 local category_funs = {
-[0x01190009] = {orion_commands,fields.orion},
-[0x10190308] = {settings_commands,fields.settings_value},
-[0xed190308] = {value_commands,fields.value},
-[0x03190308] = {hist_commands, fields.history},
-[0x0f190308] = {mixedsetting_commands, fields.mixedsettings},
-[0xec190008] = {streaming_commands, fields.streaming_commands},
-[0xed190008] = {orion_commands, fields.orion},
-[0xee190008] = {orionsettings_commands, fields.orion_settings},
-[0x05038119] = {value_commands,fields.value},
-[0x19810305] = {value_commands,fields.value},
-[0x02190008] = {orion_commands, fields.orion},
+	[0x01190308] = {base_commands, fields.base_commands},
+	[0x03190308] = {hist_commands, fields.history},
+	[0x0f190308] = {mixedsetting_commands, fields.mixedsettings},
+	[0x10190308] = {settings_commands,fields.settings_value},
+	[0xed190308] = {value_commands,fields.value},
+	[0x02190008] = {orion_commands, fields.orion},
+	[0xec190008] = {streaming_commands, fields.streaming_commands},
+	[0xed190008] = {orion_commands, fields.orion},
+	[0xee190008] = {orionsettings_commands, fields.orion_settings},
+	[0x01190009] = {orion_commands,fields.orion},
+	[0x05038119] = {value_commands,fields.value},
+	[0x19810305] = {value_commands,fields.value},
 }
 
 local bool_Categories = {
@@ -489,7 +518,7 @@ function single_value(buffer,pinfo,subtree)
 	if  data_type== 0x09 then
 		return consumed + add_unknown_bool(buffer(4),pinfo,subtree)
 	else
-		return consumed + add_unknown_field(buffer(4),pinfo,subtree)
+		return consumed + add_unknown_field(buffer(4),data_size_nibble, pinfo,subtree)
 	end
 end
 
