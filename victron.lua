@@ -435,7 +435,17 @@ function array_category(buffer, pinfo, subtree, data_size, command_types)
 	else
 	 fun = command_types[command]
 	end
-	subtree:add_le(fun[1], buffer(2,data_size))
+	--for array type packets the data_size is the size of the field containing 
+	-- the amount of total_bytes, including the total_bytes field
+	local total_bytes = buffer(2,1):le_uint()
+	print("array total_bates:"..total_bytes.." len:"..buffer():len())
+	if total_bytes+2 > buffer():len() then
+		pinfo.desegment_offset = 0 -- random choice > 0 && < leftover size
+		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+		return 0
+	end
+	subtree:add_le(fields.data_size, buffer(2,data_size))
+	--subtree:add_le(fun[1], buffer(2,data_size))
 	return data_size
 end
 
@@ -470,7 +480,7 @@ local MINIMUM_PACKET_SIZE = 5
 function single_value(buffer,pinfo,subtree)	
 	if buffer:len() < MINIMUM_PACKET_SIZE then
 		print("victron: single value need more bytes (header)")
-		pinfo.desegment_offset = 0
+		pinfo.desegment_offset = -1
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0 -- not enough data to dissect
 	end
@@ -503,7 +513,8 @@ function single_value(buffer,pinfo,subtree)
 	if category_fun  then
 		subtree:add_le(category_fun[2], buffer(4,1))
 		if command_class_nibble == 0x05 then
-			return consumed + array_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
+			-- needs to return 0 for reassembly
+			return array_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
 		else
 			return consumed + command_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])
 		end
@@ -557,7 +568,7 @@ local function bulkvalues(buffer,pinfo,tree)
 		-- test for known header. can be unknown or missing bytes
 		if command_categories[buffer(0,4):le_uint()] == nil then -- maybe not neccessary, delete after debug
 			print("victron: category unknown, need previous bytes:"..buffer(0,4):bytes():tohex() )
-			pinfo.desegment_offset = 0
+			pinfo.desegment_offset = -1
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 			return 0
 		end
@@ -567,11 +578,15 @@ local function bulkvalues(buffer,pinfo,tree)
 		if result == 0 then
 			subtree:append_text(" [not enough bytes to decode]")
 			subtree:set_hidden(true)
+			--bytes_consumed = bytes_consumed + 6 --add length of header
 			tree:add(fields.leftover,buffer(bytes_consumed))
 			print("victron: bulk need more bytes(consumed:"..bytes_consumed..")next: "..buffer(bytes_consumed,4):bytes():tohex())
-			pinfo.desegment_offset = bytes_consumed
+			print("whole buffer:"..buffer():bytes():tohex())
+			if pinfo.desegment_offset == -1 then
+				pinfo.desegment_offset = bytes_consumed -- -6
+			end -- else it was set already in single_value
 			pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-			return bytes_consumed
+			return bytes_consumed 
 		end
 		print("resul:"..result)
 		bytes_consumed = bytes_consumed + result
@@ -625,14 +640,14 @@ function victron_protocol.dissector(buffer, pinfo, tree)
 
 	if buffer:len() < MINIMUM_PACKET_SIZE then
 		print("victron generic: header too short")
-		pinfo.desegment_offset = 0
+		pinfo.desegment_offset = -1
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0
 	end
 
 	if command_categories[buffer(0,4):le_uint()] == nil then
 		print("victron: category unknown, need previous bytes:"..buffer(0,4):bytes():tohex() )
-		pinfo.desegment_offset = 0
+		pinfo.desegment_offset = -1
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0
 	end
