@@ -196,3 +196,28 @@ def test_bulk_stuff():
             uuid=victron_smartshunt.handle_uuid_map[handle]
         )
         device.characteristic_value_updated(dummy_characteristic, bytes.fromhex(data))
+
+
+# they always come in 2 pakets
+def test_bulk_array_history(mocker):
+    logged_result = ""
+
+    def mocked_logger(text):
+        nonlocal logged_result
+        logged_result = text
+
+    fixtures = [
+        ("0027", "08031910515822000100000000000000b505d004"),
+        ("0027", "000000000028000100e901020000000100860835"),
+    ]
+    device = victron_smartshunt.get_device_instance(
+        "", "test", handle_single_value, handle_bulk_values
+    )
+    for handle, data in fixtures:
+        dummy_characteristic = types.SimpleNamespace(
+            uuid=victron_smartshunt.handle_uuid_map[handle]
+        )
+        mocker.patch("victron.logger", mocked_logger)
+        device.characteristic_value_updated(dummy_characteristic, bytes.fromhex(data))
+    assert "Battery V_max: 14.61V" in logged_result
+    assert "Day Index: -1" in logged_result

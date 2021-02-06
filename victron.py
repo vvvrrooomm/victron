@@ -209,10 +209,41 @@ def decode_header(header_4b):
     return Header(VALUE_TYPES(header_4b[0]), int.from_bytes(bytes(header_4b[:4]), "little"), 4)
 
 
+COMMAND_POS = 0
+LENGHT_TYPE_POS = 1
+DATA_POS = 2
+
+
+ARRAY_VALUES = [
+    (12, 2, ("Battery V_max", "V", 100, True)),
+    (14, 2, ("Battery V_min", "V", 100, True)),
+    (21, 2, ("Total Work", "kWh", 100, False)),
+    (27, 1, ("Solar P_max", "W", 1, False)),
+    (33, 2, ("Solar V_max", "V", 100, True)),
+    # array always is 36bytes
+]
+
+
+def decode_long_packet(command, value):
+    total_length = value[DATA_POS]
+    if len(value) < total_length:
+        return "", -1
+    if command & 0xF0 != 0x50:
+        return f"unknown history command {command:x}", total_length
+
+    values = []
+    for config in ARRAY_VALUES:
+        data_label = config[2][0]
+        data = value[config[0] : config[0] + config[1]]
+        data_string = format_value(data, config[2])
+        values += [f"{data_label}: {data_string}"]
+
+    day_index = value[35]
+    values += [f"Day Index: {day_index -54}"]
+    return "\n".join(values), total_length
+
+
 def decode_var_len(value, config_table):
-    COMMAND_POS = 0
-    LENGHT_TYPE_POS = 1
-    DATA_POS = 2
 
     length_type_field = value[LENGHT_TYPE_POS]
     length = length_type_field & 0x0F
@@ -220,6 +251,9 @@ def decode_var_len(value, config_table):
     data = value[DATA_POS : DATA_POS + length]
 
     command = value[COMMAND_POS]
+    if type_id == 0x05:
+        return decode_long_packet(command, value)
+
     if command not in config_table:
         raise KeyError(f"unknown command 0x{command:x}")
 
@@ -291,8 +325,12 @@ def handle_one_value(value, device_name):
         category = VARLEN_CATEGORY_LOOKUP[header.category_type]
         result, used = decode_var_len(value[consumed:], category[1])
 
-    consumed += used
-    logger(f"{device_name}: {result}")
+    if used != -1:
+        consumed += used
+        logger(f"{device_name}: {result}")
+    else:
+        consumed = -1
+
     return consumed
 
 
@@ -306,14 +344,14 @@ def handle_bulk_values(value, device_name):
     pos = start_of_packet(buffer)
     while len(buffer) > 0 and pos >= 0:
         consumed = handle_one_value(buffer[pos:], device_name)
+        if consumed == -1:
+            print("{device_name}: bulk: need more bytes")
+            return
         buffer = buffer[pos + consumed :]
         pos = start_of_packet(buffer)
         if pos > 0:  # TODO BUG: midnight hacking
             unknown = buffer[:pos]
             print(f"{device_name}: unknown value in bulk: {unknown}")
-        if consumed == -1:
-            print("{device_name}: bulk: need more bytes")
-            return
 
 
 def handle_single_value(value, device_name):

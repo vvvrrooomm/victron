@@ -301,6 +301,7 @@ local settings_types = {
 	[0x06] = "set current threshold",
 	[0x07] = "set time-to-go avg. per.",
 	[0x08] = "set discharge floor!",
+	[0x50] = "Historic array data",
 }
 fields.settings_value   = ProtoField.uint8("victron.settings", "settings", base.HEX, settings_types)
 fields.set_capacity   = ProtoField.int32("victron.set_capacity", settings_types[0x00])
@@ -324,8 +325,15 @@ local settings_commands = {
 	[0x06] = {fields.set_curr_threshold,100},
 	[0x07] = {fields.set_timetogo,1},
 	[0x08] = {fields.set_dis_floor,10},	
+	
 }
 
+fields.array_total_work  = ProtoField.float("victron.array_total_work", "Total Work", {" kWh"})
+fields.array_day_index  = ProtoField.float("victron.array_day_index", "Today minus", {" days"})
+fields.array_bat_vmax  = ProtoField.float("victron.array_bat_vmax", "Bat Vmax", {" V"})
+fields.array_bat_vmin  = ProtoField.float("victron.array_bat_vmin", "Bat Vmin", {" V"})
+fields.array_solar_pmax  = ProtoField.float("victron.array_solar_pmax", "Solar PMax", {" p"})
+fields.array_solar_vmax  = ProtoField.float("victron.array_solar_vmax", "Solar Vmax", {" V"})
 
 local statuses = {
 [0x00] = "New Command",
@@ -444,9 +452,18 @@ function array_category(buffer, pinfo, subtree, data_size, command_types)
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
 		return 0
 	end
-	subtree:add_le(fields.data_size, buffer(2,data_size))
+	-- offset to package counter is -5
+	subtree:add_le(fields.data_size, buffer(2,1))
+	subtree:add_le(fields.array_bat_vmax, buffer(12,2), buffer(12,2):le_int()/100)
+	subtree:add_le(fields.array_bat_vmin, buffer(14,2), buffer(14,2):le_int()/100)
+	subtree:add_le(fields.array_total_work, buffer(21,2),buffer(21,2):le_uint()/100)
+	subtree:add_le(fields.array_solar_pmax, buffer(27,1),buffer(27,1):le_uint()/1)
+	subtree:add_le(fields.array_solar_vmax, buffer(33,2),buffer(33,2):le_uint()/100)
+	subtree:add_le(fields.array_day_index, buffer(35,1),buffer(35,1):le_uint()/1-54)
+	
+	
 	--subtree:add_le(fun[1], buffer(2,data_size))
-	return data_size
+	return total_bytes
 end
 
 local category_funs = {
@@ -475,7 +492,7 @@ local function prepare_subtree(buffer, tree, packet_type)
 	return subtree
 end
 
-local MINIMUM_PACKET_SIZE = 5
+local MINIMUM_PACKET_SIZE = 7
 
 function single_value(buffer,pinfo,subtree)	
 	if buffer:len() < MINIMUM_PACKET_SIZE then
@@ -487,6 +504,7 @@ function single_value(buffer,pinfo,subtree)
 
 	local consumed = 6 -- headers and minimal packet
 	command_class_nibble = bit.rshift( bit.band(buffer(5,1):uint() , 0xf0) ,4)
+
 	data_size_nibble = bit.band(buffer(5,1):uint() , 0x0f)
 	if data_size_nibble+6 > buffer:len() then
 		print("victron: single value need more bytes (data)")
