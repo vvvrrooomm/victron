@@ -19,6 +19,8 @@ prompt-toolkit==3.0.8
 ptyprocess==0.6.0
 pycairo==1.20.0
 pydbus==0.6.0
+pytest
+pytest_mock
 Pygments==2.7.2
 PyGObject==3.38.0
 regex==2020.10.28

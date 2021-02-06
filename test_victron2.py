@@ -3,7 +3,7 @@ import pytest
 import types
 import gatt
 from pytest_mock import mocker
-from victron_2 import (
+from victron import (
     SIGNATURE,
     VARLEN_CATEGORY_LOOKUP,
     decode_var_len,
@@ -13,7 +13,7 @@ from victron_2 import (
     decode_header,
     VALUE_TYPES,
 )
-import victron_2
+
 from victron_gatt import AnyDevice
 import victron_smartshunt
 import victron_orion
@@ -133,7 +133,7 @@ def test_battery_capacity(mocker):
         dummy_characteristic = types.SimpleNamespace(
             uuid=victron_smartshunt.handle_uuid_map[handle]
         )
-        mocker.patch("victron_2.logger", mocked_logger)
+        mocker.patch("victron.logger", mocked_logger)
         device.characteristic_value_updated(dummy_characteristic, data)
         assert logged_result == "test: Battery Charge Status: 100.0%"
 
@@ -159,7 +159,7 @@ def test_orion(mocker):
     device = victron_orion.get_device_instance("", "test", handle_single_value, handle_bulk_values)
     for handle, data in fixtures:
         dummy_characteristic = types.SimpleNamespace(uuid=victron_orion.handle_uuid_map[handle])
-        mocker.patch("victron_2.logger", mocked_logger)
+        mocker.patch("victron.logger", mocked_logger)
         device.characteristic_value_updated(dummy_characteristic, data)
 
 
@@ -180,7 +180,7 @@ def test_smartshunt(mocker):
         dummy_characteristic = types.SimpleNamespace(
             uuid=victron_smartshunt.handle_uuid_map[handle]
         )
-        mocker.patch("victron_2.logger", mocked_logger)
+        mocker.patch("victron.logger", mocked_logger)
         device.characteristic_value_updated(dummy_characteristic, data)
 
 
