@@ -122,13 +122,17 @@ local mixedsetting_commands = {
 }
 
 local streamingcommands_types= {
-
+	[0x17] = "unknown, decode as array",
+	[0x20] = "unknown",
+	[0x30] = "unknwon",
+	[0x31] = "unknown,decode as array",
 }
 fields.streaming_commands =  ProtoField.uint8("victron.streamingcommands", "streaming commands", base.HEX, streamingcommands_types)
 local streaming_commands = {
-		[0x20] = {fields.unknown_bytes,1},
-		[0x30] = {fields.unknown8,1},
-		[0x31] = {fields.unknown64,1},
+	[0x17] = {fields.unknown_bytes,1,TvbRange.string},
+	[0x20] = {fields.unknown_bytes,1},
+	[0x30] = {fields.unknown8,1},
+	[0x31] = {fields.unknown_bytes,1, TvbRange.string},
 }
 
 fields.smartshunt_bool = ProtoField.bool("victron.smartshunt_bool", "unknown bool")
@@ -301,10 +305,7 @@ local settings_types = {
 	[0x07] = "set time-to-go avg. per.",
 	[0x08] = "set discharge floor!",
 	[0x31] = "Streaming data",
-	[0x50] = "Historic array data",
-	[0x51] = "History Details (2pkt) [0x51]",
-	[0x52] = "History Details (2pkt) [0x52]",
-	[0x57] = "History Details (2pkt) [0x57]",
+	[0x50] = "History Details (2pkt)",
 }
 fields.settings_value   = ProtoField.uint8("victron.settings", "settings", base.HEX, settings_types)
 fields.set_capacity   = ProtoField.int32("victron.set_capacity", settings_types[0x00])
@@ -335,7 +336,7 @@ fields.array_total_work  = ProtoField.float("victron.array_total_work", "Total W
 fields.array_day_index  = ProtoField.float("victron.array_day_index", "Today minus", {" days"})
 fields.array_bat_vmax  = ProtoField.float("victron.array_bat_vmax", "Bat Vmax", {" V"})
 fields.array_bat_vmin  = ProtoField.float("victron.array_bat_vmin", "Bat Vmin", {" V"})
-fields.array_solar_pmax  = ProtoField.float("victron.array_solar_pmax", "Solar PMax", {" p"})
+fields.array_solar_pmax  = ProtoField.float("victron.array_solar_pmax", "Solar PMax", {" W"})
 fields.array_solar_vmax  = ProtoField.float("victron.array_solar_vmax", "Solar Vmax", {" V"})
 
 local statuses = {
@@ -438,7 +439,7 @@ function command_category(buffer, pinfo, subtree, data_size, command_types)
 end
 
 
-function array_category(buffer, pinfo, subtree, data_size, command_types)
+function history_category(buffer, pinfo, subtree, data_size, command_types)
 
 	command = buffer(0,1):le_uint() 
 	local fun
@@ -522,19 +523,25 @@ function single_value(buffer,pinfo,subtree)
 	subtree:add_le(fields.data_type, buffer(0,1), data_type)
 
 	local category = buffer(4,1):le_uint()
-
+	local history_index = category - 0x50
+	local category_text = nil
+	if (history_index >= 0) and (history_index <= 31) then
+		category = 0x50
+		category_text = "today - "..history_index .."days"
+	end
+	--subtree:add_le(fields.command_category, buffer(4,1))
 	local header = buffer(0,4):le_uint()
 	
 	category_fun = category_funs[header]
 
 	if category_fun  then
-		subtree:add_le(category_fun[2], buffer(4,1))
+		subtree:add_le(category_fun[2], buffer(4,1), category, nil, category_text)
 		subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
 		subtree:add_le(fields.data_size , buffer(5,1), data_size_nibble)
-		if bit.band(category, 0xf0) == 0x50 then
-			-- needs to return 0 for reassembly
-			pinfo.cols.info = "array"
-			local result = array_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
+		if ((history_index >= 0) and (history_index <= 31)) or category == 0x4f   then -- unknown end of history. we could imagine 0xff-0x50= 175 days of hsitory 
+			pinfo.cols.info = "history"
+			local result = history_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
+			-- needs to return 0 to trigger wireshark packet reassembly
 			return (result > 0) and result+consumed or result
 		else
 			pinfo.cols.info = "command"

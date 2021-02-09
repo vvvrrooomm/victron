@@ -223,13 +223,14 @@ ARRAY_VALUES = [
     # array always is 36bytes
 ]
 
+HISTORY_MIN_CMD = 0x50
+HISTORY_MAX_CMD = HISTORY_MIN_CMD + 31
 
-def decode_long_packet(command, value):
+
+def decode_history_packet(command, value):
     total_length = value[DATA_POS]
     if len(value) < total_length:
         return "", -1
-    if command & 0xF0 != 0x50:
-        return f"unknown history command {command:x}", total_length
 
     values = []
     for config in ARRAY_VALUES:
@@ -239,7 +240,7 @@ def decode_long_packet(command, value):
         values += [f"{data_label}: {data_string}"]
 
     day_index = value[35]
-    values += [f"Day Index: {day_index -54}"]
+    values += [f"Day Index: {day_index -54} alternative (should match): {command-0x50}"]
     return "\n".join(values), total_length
 
 
@@ -251,8 +252,8 @@ def decode_var_len(value, config_table):
     data = value[DATA_POS : DATA_POS + length]
 
     command = value[COMMAND_POS]
-    if type_id == 0x05:
-        return decode_long_packet(command, value)
+    if command >= HISTORY_MIN_CMD and command <= HISTORY_MAX_CMD:
+        return decode_history_packet(command, value)
 
     if command not in config_table:
         raise KeyError(f"unknown command 0x{command:x}")
