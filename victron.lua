@@ -40,7 +40,6 @@ local command_categories = {
 	[0x02190008] = "Orion state",
 }
 fields.command_category = ProtoField.uint32("victron.cmd_category", "command category", base.HEX, command_categories)
-fields.start_sequence   = ProtoField.uint32("victron.start_sequence", "start_squence", base.HEX)
 fields.unknown_command  = ProtoField.uint8("victron.command", "unknown command", base.HEX)
 
 local data_types = {
@@ -518,12 +517,11 @@ function single_value(buffer,pinfo,subtree)
 		return 0 -- not enough data to dissect
 	end
 
-	subtree:add_le(fields.start_sequence, buffer(0,4))
+	subtree:add_le(fields.command_category, buffer(0,4))
 	local data_type = buffer(0,1):le_uint()
 	subtree:add_le(fields.data_type, buffer(0,1), data_type)
 
 	local category = buffer(4,1):le_uint()
-	subtree:add_le(fields.command_category, buffer(4,1))
 
 	local header = buffer(0,4):le_uint()
 	
