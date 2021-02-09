@@ -301,7 +301,11 @@ local settings_types = {
 	[0x06] = "set current threshold",
 	[0x07] = "set time-to-go avg. per.",
 	[0x08] = "set discharge floor!",
+	[0x31] = "Streaming data",
 	[0x50] = "Historic array data",
+	[0x51] = "History Details (2pkt) [0x51]",
+	[0x52] = "History Details (2pkt) [0x52]",
+	[0x57] = "History Details (2pkt) [0x57]",
 }
 fields.settings_value   = ProtoField.uint8("victron.settings", "settings", base.HEX, settings_types)
 fields.set_capacity   = ProtoField.int32("victron.set_capacity", settings_types[0x00])
@@ -372,6 +376,7 @@ function add_unknown_bool(buffer,pinfo,subtree)
 end
 
 function add_unknown_field(buffer,size, pinfo,subtree)
+	local unknown_field = fields.unknown_bytes
 		-- unknownd filed depending on data size
 	if size == 1 then
 		unknown_field = fields.unknown8
@@ -463,7 +468,7 @@ function array_category(buffer, pinfo, subtree, data_size, command_types)
 	
 	
 	--subtree:add_le(fun[1], buffer(2,data_size))
-	return total_bytes
+	return total_bytes 
 end
 
 local category_funs = {
@@ -517,12 +522,8 @@ function single_value(buffer,pinfo,subtree)
 	local data_type = buffer(0,1):le_uint()
 	subtree:add_le(fields.data_type, buffer(0,1), data_type)
 
-	local category = buffer(0,4):le_uint()
-	subtree:add_le(fields.command_category, buffer(0,4))
-
-	subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
-	subtree:add_le(fields.data_size , buffer(5,1), data_size_nibble)
-
+	local category = buffer(4,1):le_uint()
+	subtree:add_le(fields.command_category, buffer(4,1))
 
 	local header = buffer(0,4):le_uint()
 	
@@ -530,10 +531,15 @@ function single_value(buffer,pinfo,subtree)
 
 	if category_fun  then
 		subtree:add_le(category_fun[2], buffer(4,1))
-		if command_class_nibble == 0x05 then
+		subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
+		subtree:add_le(fields.data_size , buffer(5,1), data_size_nibble)
+		if bit.band(category, 0xf0) == 0x50 then
 			-- needs to return 0 for reassembly
-			return array_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
+			pinfo.cols.info = "array"
+			local result = array_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
+			return (result > 0) and result+consumed or result
 		else
+			pinfo.cols.info = "command"
 			return consumed + command_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])
 		end
 	end
@@ -541,6 +547,8 @@ function single_value(buffer,pinfo,subtree)
 	bool_fun = bool_Categories[header]
 	if bool_fun then
 		subtree:add_le(bool_fun[2], buffer(4,1))
+		subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
+		subtree:add_le(fields.data_size , buffer(5,1), data_size_nibble)
 		return consumed + settings_bool(buffer(4), pinfo, subtree, bool_fun[1])
 	end		
 
@@ -555,6 +563,10 @@ end
 local function is_packet_end(buffer)
 	-- 4 byte is the minimum header, only test that much for 0xff
 	-- start at begginning of tvb towards the end
+	if buffer:len() == 0 then
+		return false -- no padding needed
+	end
+
 	for i=0,math.min(4,buffer:len()-1) do
 		if buffer(i,1):le_uint() ~= 0xff then
 			return false
