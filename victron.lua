@@ -1,4 +1,4 @@
-victron_protocol = Proto("victron", "Victron precision shunt")
+victron_protocol = Proto("victron", "VictronConnect protocol")
 local gatt = Dissector.get("btatt")
 local btatt_value_f = Field.new("btatt.value")
 local btatt_handle_f = Field.new("btatt.handle")
@@ -48,18 +48,23 @@ local data_types = {
 }
 fields.data_type   = ProtoField.uint8("victron.data_type", "data type", base.HEX, data_types)
 
-local base_types = {
+local prod_info = {
+	[0x02] = "firmware version?",
 	[0x0a] = "serial number",
+	[0x0b] = "model name",
+	[0x40] = "capabilities",
 	[0x8d] = "",
 	[0xbb] = "",
-	[0xe9] = "",
+	[0xe2] = "",
 	[0x09] = "",
+	[0x0e] = "identification",
 	[0xf7] = "",
 	[0xf6] = "",
 	[0xfc] = "",
-	[0x20] = "",
+	[0x10] = "UDF version?",
+	[0x20] = "uptime?",
 }
-fields.base_commands   = ProtoField.uint8("victron.base", "base command", base.HEX, base_types)
+fields.base_commands = ProtoField.uint8("victron.base", "Product information", base.HEX, prod_info)
 fields.base_serial = ProtoField.string("victron.base_serial","base serial")
 
 local base_commands = {
@@ -68,46 +73,138 @@ local base_commands = {
 
 
 local value_types = {
+	[0x2e] = "Setting Re-bulk voltage offset",
+	[0x7d] = "SmartShunt Starter",
 	[0x8c] = "SmartShunt Current",
 	[0x8d] = "Victron Voltage",
 	[0x8e] = "SmartShunt Power",
-	[0x7d] = "SmartShunt Starter",
 	[0x8f] = "SmartSolar Battery Current",
+	[0x91] = "SmartSolar Enable Streetlight",
+	[0x96] = "SmartSolar sunset delay time",
+	[0x97] = "SmartSolar sunrise delay time",
+	[0x99] = "SmartSolar sunrise detection voltage",
+	[0x9a] = "SmartSolar sunset detection voltage",
+	[0x9b] = "SmartSolar Gradual Dimming speed",
+	[0x9c] = "SmartSolar Setting Load Output off level",
+	[0x9d] = "SmartSolar Setting Load Output on level",
+	[0x9e] = "SmartSolar TX port mode",
+	[0xa0] = "SmartSolar Setting Sunset Action",
+	[0xa1] = "SmartSolar interval before sunset action",
+	[0xa2] = "SmartSolar Setting Sunrise Action",
+	[0xa3] = "SmartSolar interval before sunrise action",
+	[0xa7] = "SmartSolar Mid Point Shift",
+	[0xa8] = "SmartSolar Load output state",
 	[0xa9] = "HomeSmartSolar Battery Voltage(??)",
-	[0xbd] = "SmartSolar Solar Current",
-	[0xbc] = "SmartSolar Power",
+	[0xab] = "SmartSolar Setting Load Output Mode",
+	[0xac] = "SmartSolar Load output offset voltage?",
 	[0xbb] = "SmartSolar Solar Voltage",
-	[0xef] = "SmartSolar Setting Battery Voltage",
-	[0xf0] = "SmartSolar Setting Charge Current",
-	[0xf6] = "SmartSolar Setting Float Voltage",
-
+	[0xbc] = "SmartSolar Power",
+	[0xbd] = "SmartSolar Solar Current",
+	[0xca] = "Voltage compensation",
+	[0xd4] = "Charger additional state information",
+	[0xda] = "Charger error code",
+	[0xda] = "Charger internal temperature",
+	[0xdc] = "SmartSolar User Yield",
+	[0xdd] = "SmartSolar System Yield",
+	[0xdf] = "Charger maximum current",
+	[0xe0] = "Setting Battery Temperature Cutoff",
+	[0xe3] = "Setting Battery maximum equalisation duration",
+	[0xe4] = "Setting Battery equalisation current",
+	[0xe5] = "Setting Battery equalisation stop mode",
+	[0xe6] = "Enable Battery Temperature Cutoff",
+	[0xe7] = "Setting Battery Tail Current",
+	[0xe8] = "Battery BMS present?",
+	[0xea] = "Battery voltage setting",
+	[0xef] = "Setting Battery voltage selection",
+	[0xf0] = "Setting Battery maximum current",
+	[0xf1] = "Setting Battery Type",
+	[0xf2] = "Setting Battery temperature compensation setting",
+	[0xf4] = "Setting Battery equalisation voltage level",
+	[0xf6] = "Setting Battery float voltage level",
+	[0xf7] = "Setting Battery absorption voltage level",
+	[0xfb] = "Setting Battery absorption time limit",
+	[0xfd] = "Setting Battery equalization frequency",
+	[0xfe] = "Setting Battery adaptive mode",
 }
+
 fields.value   = ProtoField.uint8("victron.command", "command", base.HEX, value_types)
-fields.current   = ProtoField.float("victron.current", value_types[0x8c], {" A"},  base.UNIT_STRING)
-fields.voltage   = ProtoField.float("victron.voltage", value_types[0x8d], {" V"},  base.UNIT_STRING)
-fields.power   = ProtoField.float("victron.power", value_types[0x8e], {" w"}, base.UNIT_STRING)
-fields.starter   = ProtoField.float("victron.starter", value_types[0x7d], {"V"}, base.UNIT_STRING)
-fields.battery_current   = ProtoField.float("victron.battery_current", value_types[0x8f], {"A"}, base.UNIT_STRING)
-fields.battery_voltage   = ProtoField.float("victron.battery_voltage", value_types[0xa9], {" V"},  base.UNIT_STRING) -- observed in HomseSmartSolar
-fields.solar_current   = ProtoField.float("victron.solar_current", value_types[0x8d], {"A"}, base.UNIT_STRING)
-fields.solar_volt   = ProtoField.float("victron.solar_volt", value_types[0x8d], {"V"}, base.UNIT_STRING)
-fields.solar_power   = ProtoField.float("victron.solarpower", value_types[0xbc], {" w"}, base.UNIT_STRING)
-fields.float_voltage   = ProtoField.float("victron.float_voltage", value_types[0xf6], {" V"}, base.UNIT_STRING)
+fields.current   = ProtoField.float("victron.current", value_types[0x8c], {" A"})
+fields.voltage   = ProtoField.float("victron.voltage", value_types[0x8d], {" V"})
+fields.power   = ProtoField.int16("victron.power", value_types[0x8e], base.UNIT_STRING, {" W"})
+fields.starter   = ProtoField.float("victron.starter", value_types[0x7d], {"V"})
+fields.battery_current   = ProtoField.float("victron.battery_current", value_types[0x8f], {"A"})
+fields.battery_voltage   = ProtoField.float("victron.battery_voltage", value_types[0xa9], {" V"}) -- observed in HomseSmartSolar
+fields.solar_current   = ProtoField.float("victron.solar_current", value_types[0xbd], {" A"})
+fields.solar_volt   = ProtoField.float("victron.solar_volt", value_types[0xbb], {" V"})
+fields.solar_power   = ProtoField.float("victron.solarpower", value_types[0xbc], {" W"})
+fields.set_temp_comp   = ProtoField.float("victron.set_temp_comp", value_types[0xf2], {" mV/°C"})
+fields.eq_voltage   = ProtoField.float("victron.eq_voltage", value_types[0xf4], {" V"})
+fields.float_voltage   = ProtoField.float("victron.float_voltage", value_types[0xf6], {" V"})
+fields.set_batt_abs_voltage   = ProtoField.float("victron.set_batt_abs_voltage", value_types[0xf7], {" V"})
+fields.abs_time_limit   = ProtoField.int16("victron.abs_time_limit", value_types[0xfb], base.UNIT_STRING, {" h"})
+fields.eq_freq   = ProtoField.int16("victron.eq_freq", value_types[0xfd], base.UNIT_STRING, {" d"})
+fields.sunset_delay   = ProtoField.int16("victron.sunset_delay", value_types[0x96], base.UNIT_STRING, {" min"})
+fields.sunrise_delay   = ProtoField.int16("victron.sunset_delay", value_types[0x97], base.UNIT_STRING, {" min"})
+fields.sunrise_voltage   = ProtoField.float("victron.sunrise_voltage", value_types[0x99], {" V"})
+fields.sunset_voltage   = ProtoField.float("victron.sunset_voltage", value_types[0x9a], {" V"})
+fields.dimm_speed   = ProtoField.int16("victron.dimm_speed", value_types[0x9b], base.UNIT_STRING, {" s/%"})
+fields.lo_low_voltage   = ProtoField.float("victron.lo_low_voltage", value_types[0x9c], {" V"})
+fields.lo_high_voltage   = ProtoField.float("victron.lo_high_voltage", value_types[0x9d], {" V"})
+fields.port_mode   = ProtoField.uint8("victron.port_mode", value_types[0x9e])
+fields.mid_point_shift   = ProtoField.int16("victron.mid_point_shift", value_types[0xa7], base.UNIT_STRING, {" min"})
+fields.lo_status   = ProtoField.bool("victron.lo_status", value_types[0xa8])
+fields.internal_temp   = ProtoField.float("victron.internal_temp", value_types[0xdb], {" °C"})
+fields.user_yield   = ProtoField.float("victron.user_yield", value_types[0xdc], {" kWh"})
+fields.system_yield   = ProtoField.float("victron.user_yield", value_types[0xdd], {" kWh"})
+fields.chg_max_current   = ProtoField.float("victron.chg_max_current", value_types[0xdf], {" A"})
+fields.rebulk_offs   = ProtoField.float("victron.rebulk_offs", value_types[0x2e])
+fields.temp_cutoff   = ProtoField.float("victron.temp_cutoff", value_types[0xe0])
+fields.max_eq_dur   = ProtoField.float("victron.max_eq_dur", value_types[0xe3])
+fields.eq_current   = ProtoField.uint16("victron.eq_current", value_types[0xe4], base.UNIT_STRING, {" %"})
+fields.tail_current   = ProtoField.float("victron.tail_current", value_types[0xe7], {" A"})
 fields.set_battery_voltage   = ProtoField.uint16("victron.set_battery_voltage", value_types[0xef], base.UNIT_STRING, {" V"})
+fields.battery_voltage   = ProtoField.uint16("victron.battery_voltage", value_types[0xea], base.UNIT_STRING, {" V"})
 fields.set_charge_current   = ProtoField.uint16("victron.set_charge_current", value_types[0xf0], base.UNIT_STRING, {" A"})
+fields.volt_comp   = ProtoField.uint16("victron.volt_comp", value_types[0xca], base.UNIT_STRING, {" V"})
+
 local value_commands = {
+	[0x2e] = {fields.rebulk_offs,100},
+	[0x7d] = {fields.starter,100},
 	[0x8c] = {fields.current,1000},
 	[0x8d] = {fields.voltage,100},
 	[0x8e] = {fields.power,1}, --smartshunt
-	[0x7d] = {fields.starter,100},
 	[0x8f] = {fields.battery_current,10},
+	[0x96] = {fields.sunset_delay,1}, --smartsolar setting
+	[0x97] = {fields.sunrise_delay,1}, --smartsolar setting
+	[0x99] = {fields.sunrise_voltage,100}, --smartsolar setting
+	[0x9a] = {fields.sunset_voltage,100}, --smartsolar setting
+	[0x9b] = {fields.dimm_speed,1}, --smartsolar setting
+	[0x9c] = {fields.lo_low_voltage,100}, --smartsolar setting
+	[0x9d] = {fields.lo_high_voltage,100}, --smartsolar setting
+	[0xa7] = {fields.mid_point_shift,1},
+	[0xa8] = {fields.lo_status,1}, --smartsolar setting
 	[0xa9] = {fields.battery_voltage,100},
+	[0xbb] = {fields.solar_volt,100}, -- smartsolar
 	[0xbc] = {fields.solar_power,100}, -- smartsolar
 	[0xbd] = {fields.solar_current,10}, -- smartsolar
-	[0xbb] = {fields.solar_volt,100}, -- smartsolar
-	[0xef] = {fields.set_battery_voltage,1}, -- smartsolar setting
-	[0xf0] = {fields.set_charge_current,1}, --smartsolar setting
-	[0xf6] = {fields.float_voltage,100}, --smartsolar setting
+	[0xca] = {fields.volt_comp,100},
+	[0xdb] = {fields.internal_temp,100}, --smartsolar setting
+	[0xdc] = {fields.user_yield,100}, --smartsolar setting
+	[0xdd] = {fields.system_yield,100}, --smartsolar setting
+	[0xdf] = {fields.chg_max_current,10}, --smartsolar setting
+	[0xe0] = {fields.temp_cutoff,100},
+	[0xe3] = {fields.max_eq_dur,100},
+	[0xe4] = {fields.eq_current,1},
+	[0xe7] = {fields.tail_current,10},
+	[0xea] = {fields.battery_voltage,1},
+	[0xef] = {fields.set_battery_voltage,1},
+	[0xf0] = {fields.set_charge_current,10},
+	[0xf2] = {fields.set_temp_comp,-100}, -- this value is supposed to be negative - how to do?
+	[0xf4] = {fields.eq_voltage,100},
+	[0xf6] = {fields.float_voltage,100},
+	[0xf7] = {fields.set_batt_abs_voltage,100},
+	[0xfb] = {fields.abs_time_limit,100},
+	[0xfd] = {fields.eq_freq,1},
 }
 
 local mixedsetting_types={
@@ -275,8 +372,8 @@ local hist_commands = {
  }
 
 
-command_class_type = { [0x0] = "status reply?", [0x4] ="data reply?", [0x05]="data array?", [0x8] = "bulk values??"}
-fields.command_class   = ProtoField.uint8("victron.command_class", "command class", base.HEX, command_class_type)
+cbor_type = { [0x0] = "unsigned", [0x1] ="signed", [0x02]="unstructured string", [0x03]="UTF8 string", [0x04]="array", [0x05]="map", [0x06]="tag"}
+fields.cbor_type   = ProtoField.uint8("victron.cbor_type", "CBOR Type", base.HEX, cbor_type)
 
 data_size_type = { [0x08] = "8byte", [0x04] = "4ybte" , [0x02]="2byte", [0x01] = "1byte"}
 fields.data_size   = ProtoField.uint8("victron.data_size", "data size", base.DEC)
@@ -288,6 +385,14 @@ fields.crc   = ProtoField.uint8("victron.crc", "crc", base.HEX)
 fields.reserved   = ProtoField.uint8("victron.reserved", "Reserved", base.HEX)
 fields.padding   = ProtoField.bytes("victron.padding", "Padding")
 
+page_group = {
+	{0x00, 0x00, "VReg commands"}, 
+	{0x01, 0x01, "Product information / Update"}, 
+	{0x02, 0x7f, "Device Control"}, 
+	{0x80, 0xee, "Product specific"}, 
+	{0xf0,0xff,"Reserved"}
+} -- https://www.victronenergy.de/upload/documents/VE.Can-registers-public.pdf
+fields.page   = ProtoField.uint8("victron.page", "VREG Page", base.RANGE_STRING, page_group)
 
 
 --fields.capacity   = ProtoField.float("victron.capacity", "capacity (%)", base.UNIT_STRING, { [0]="%"})
@@ -451,7 +556,7 @@ function history_category(buffer, pinfo, subtree, data_size, command_types)
 	--for array type packets the data_size is the size of the field containing 
 	-- the amount of total_bytes, including the total_bytes field
 	local total_bytes = buffer(2,1):le_uint()
-	print("array total_bates:"..total_bytes.." len:"..buffer():len())
+	print("array total_bytes:"..total_bytes.." len:"..buffer():len())
 	if total_bytes+2 > buffer():len() then
 		pinfo.desegment_offset = 0 -- random choice > 0 && < leftover size
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
@@ -508,10 +613,10 @@ function single_value(buffer,pinfo,subtree)
 	end
 
 	local consumed = 6 -- headers and minimal packet
-	command_class_nibble = bit.rshift( bit.band(buffer(5,1):uint() , 0xf0) ,4)
+	cbor_type_bits = bit.rshift( bit.band(buffer(5,1):uint() , 0xe0) ,5)
 
-	data_size_nibble = bit.band(buffer(5,1):uint() , 0x0f)
-	if data_size_nibble+6 > buffer:len() then
+	data_size_bits = bit.band(buffer(5,1):uint() , 0x1f)
+	if data_size_bits+6 > buffer:len() then
 		print("victron: single value need more bytes (data)")
 		pinfo.desegment_offset = 0
 		pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
@@ -521,6 +626,8 @@ function single_value(buffer,pinfo,subtree)
 	subtree:add_le(fields.command_category, buffer(0,4))
 	local data_type = buffer(0,1):le_uint()
 	subtree:add_le(fields.data_type, buffer(0,1), data_type)
+
+	subtree:add_le(fields.page, buffer(3,1))
 
 	local category = buffer(4,1):le_uint()
 	local history_index = category - 0x50
@@ -536,31 +643,31 @@ function single_value(buffer,pinfo,subtree)
 
 	if category_fun  then
 		subtree:add_le(category_fun[2], buffer(4,1), category, nil, category_text)
-		subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
-		subtree:add_le(fields.data_size , buffer(5,1), data_size_nibble)
+		subtree:add_le(fields.cbor_type, buffer(5,1), cbor_type_bits)
+		subtree:add_le(fields.data_size , buffer(5,1), data_size_bits)
 		if ((history_index >= 0) and (history_index <= 31)) or category == 0x4f   then -- unknown end of history. we could imagine 0xff-0x50= 175 days of hsitory 
 			pinfo.cols.info = "history"
-			local result = history_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])	
+			local result = history_category(buffer(4), pinfo, subtree, data_size_bits, category_fun[1])	
 			-- needs to return 0 to trigger wireshark packet reassembly
 			return (result > 0) and result+consumed or result
 		else
 			pinfo.cols.info = "command"
-			return consumed + command_category(buffer(4), pinfo, subtree, data_size_nibble, category_fun[1])
+			return consumed + command_category(buffer(4), pinfo, subtree, data_size_bits, category_fun[1])
 		end
 	end
 
 	bool_fun = bool_Categories[header]
 	if bool_fun then
 		subtree:add_le(bool_fun[2], buffer(4,1))
-		subtree:add_le(fields.command_class, buffer(5,1), command_class_nibble)
-		subtree:add_le(fields.data_size , buffer(5,1), data_size_nibble)
+		subtree:add_le(fields.cbor_type, buffer(5,1), cbor_type_bits)
+		subtree:add_le(fields.data_size , buffer(5,1), data_size_bits)
 		return consumed + settings_bool(buffer(4), pinfo, subtree, bool_fun[1])
 	end		
 
 	if  data_type== 0x09 then
 		return consumed + add_unknown_bool(buffer(4),pinfo,subtree)
 	else
-		return consumed + add_unknown_field(buffer(4),data_size_nibble, pinfo,subtree)
+		return consumed + add_unknown_field(buffer(4),data_size_bits, pinfo,subtree)
 	end
 end
 
