@@ -48,9 +48,11 @@ local data_types = {
 }
 fields.data_type   = ProtoField.uint8("victron.data_type", "data type", base.HEX, data_types)
 
-local base_types = {
+local prod_info = {
 	[0x02] = "firmware version?",
 	[0x0a] = "serial number",
+	[0x0b] = "model name",
+	[0x40] = "capabilities",
 	[0x8d] = "",
 	[0xbb] = "",
 	[0xe2] = "",
@@ -62,7 +64,7 @@ local base_types = {
 	[0x10] = "UDF version?",
 	[0x20] = "uptime?",
 }
-fields.base_commands   = ProtoField.uint8("victron.base", "base command", base.HEX, base_types)
+fields.base_commands = ProtoField.uint8("victron.base", "Product information", base.HEX, prod_info)
 fields.base_serial = ProtoField.string("victron.base_serial","base serial")
 
 local base_commands = {
@@ -91,15 +93,17 @@ local value_types = {
 	[0xa2] = "SmartSolar Setting Sunrise Action",
 	[0xa3] = "SmartSolar interval before sunrise action",
 	[0xa7] = "SmartSolar Mid Point Shift",
-	[0xa8] = "SmartSolar Load output status",
+	[0xa8] = "SmartSolar Load output state",
 	[0xa9] = "HomeSmartSolar Battery Voltage(??)",
 	[0xab] = "SmartSolar Setting Load Output Mode",
 	[0xac] = "SmartSolar Load output offset voltage?",
 	[0xbb] = "SmartSolar Solar Voltage",
 	[0xbc] = "SmartSolar Power",
 	[0xbd] = "SmartSolar Solar Current",
+	[0xca] = "Voltage compensation",
 	[0xd4] = "Charger additional state information",
 	[0xda] = "Charger error code",
+	[0xda] = "Charger internal temperature",
 	[0xdc] = "SmartSolar User Yield",
 	[0xdd] = "SmartSolar System Yield",
 	[0xdf] = "Charger maximum current",
@@ -131,7 +135,7 @@ fields.starter   = ProtoField.float("victron.starter", value_types[0x7d], {"V"})
 fields.battery_current   = ProtoField.float("victron.battery_current", value_types[0x8f], {"A"})
 fields.battery_voltage   = ProtoField.float("victron.battery_voltage", value_types[0xa9], {" V"}) -- observed in HomseSmartSolar
 fields.solar_current   = ProtoField.float("victron.solar_current", value_types[0xbd], {" A"})
-fields.solar_volt   = ProtoField.float("victron.solar_volt", value_types[0xbb], {" V"}, "Description V")
+fields.solar_volt   = ProtoField.float("victron.solar_volt", value_types[0xbb], {" V"})
 fields.solar_power   = ProtoField.float("victron.solarpower", value_types[0xbc], {" W"})
 fields.set_temp_comp   = ProtoField.float("victron.set_temp_comp", value_types[0xf2], {" mV/°C"})
 fields.eq_voltage   = ProtoField.float("victron.eq_voltage", value_types[0xf4], {" V"})
@@ -149,8 +153,10 @@ fields.lo_high_voltage   = ProtoField.float("victron.lo_high_voltage", value_typ
 fields.port_mode   = ProtoField.uint8("victron.port_mode", value_types[0x9e])
 fields.mid_point_shift   = ProtoField.int16("victron.mid_point_shift", value_types[0xa7], base.UNIT_STRING, {" min"})
 fields.lo_status   = ProtoField.bool("victron.lo_status", value_types[0xa8])
+fields.internal_temp   = ProtoField.float("victron.internal_temp", value_types[0xdb], {" °C"})
 fields.user_yield   = ProtoField.float("victron.user_yield", value_types[0xdc], {" kWh"})
 fields.system_yield   = ProtoField.float("victron.user_yield", value_types[0xdd], {" kWh"})
+fields.chg_max_current   = ProtoField.float("victron.chg_max_current", value_types[0xdf], {" A"})
 fields.rebulk_offs   = ProtoField.float("victron.rebulk_offs", value_types[0x2e])
 fields.temp_cutoff   = ProtoField.float("victron.temp_cutoff", value_types[0xe0])
 fields.max_eq_dur   = ProtoField.float("victron.max_eq_dur", value_types[0xe3])
@@ -159,6 +165,7 @@ fields.tail_current   = ProtoField.float("victron.tail_current", value_types[0xe
 fields.set_battery_voltage   = ProtoField.uint16("victron.set_battery_voltage", value_types[0xef], base.UNIT_STRING, {" V"})
 fields.battery_voltage   = ProtoField.uint16("victron.battery_voltage", value_types[0xea], base.UNIT_STRING, {" V"})
 fields.set_charge_current   = ProtoField.uint16("victron.set_charge_current", value_types[0xf0], base.UNIT_STRING, {" A"})
+fields.volt_comp   = ProtoField.uint16("victron.volt_comp", value_types[0xca], base.UNIT_STRING, {" V"})
 
 local value_commands = {
 	[0x2e] = {fields.rebulk_offs,100},
@@ -180,8 +187,11 @@ local value_commands = {
 	[0xbb] = {fields.solar_volt,100}, -- smartsolar
 	[0xbc] = {fields.solar_power,100}, -- smartsolar
 	[0xbd] = {fields.solar_current,10}, -- smartsolar
+	[0xca] = {fields.volt_comp,100},
+	[0xdb] = {fields.internal_temp,100}, --smartsolar setting
 	[0xdc] = {fields.user_yield,100}, --smartsolar setting
 	[0xdd] = {fields.system_yield,100}, --smartsolar setting
+	[0xdf] = {fields.chg_max_current,10}, --smartsolar setting
 	[0xe0] = {fields.temp_cutoff,100},
 	[0xe3] = {fields.max_eq_dur,100},
 	[0xe4] = {fields.eq_current,1},
@@ -375,6 +385,14 @@ fields.crc   = ProtoField.uint8("victron.crc", "crc", base.HEX)
 fields.reserved   = ProtoField.uint8("victron.reserved", "Reserved", base.HEX)
 fields.padding   = ProtoField.bytes("victron.padding", "Padding")
 
+page_group = {
+	{0x00, 0x00, "VReg commands"}, 
+	{0x01, 0x01, "Product information / Update"}, 
+	{0x02, 0x7f, "Device Control"}, 
+	{0x80, 0xee, "Product specific"}, 
+	{0xf0,0xff,"Reserved"}
+} -- https://www.victronenergy.de/upload/documents/VE.Can-registers-public.pdf
+fields.page   = ProtoField.uint8("victron.page", "VREG Page", base.RANGE_STRING, page_group)
 
 
 --fields.capacity   = ProtoField.float("victron.capacity", "capacity (%)", base.UNIT_STRING, { [0]="%"})
@@ -608,6 +626,8 @@ function single_value(buffer,pinfo,subtree)
 	subtree:add_le(fields.command_category, buffer(0,4))
 	local data_type = buffer(0,1):le_uint()
 	subtree:add_le(fields.data_type, buffer(0,1), data_type)
+
+	subtree:add_le(fields.page, buffer(3,1))
 
 	local category = buffer(4,1):le_uint()
 	local history_index = category - 0x50
